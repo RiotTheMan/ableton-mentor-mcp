@@ -264,7 +264,7 @@ def get_session_info(ctx: Context) -> str:
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("get_session_info")
-        return json.dumps(result, indent=2)
+        return json.dumps(result, separators=(',', ':'))
     except Exception as e:
         logger.error(f"Error getting session info from Ableton: {str(e)}")
         return f"Error getting session info: {str(e)}"
@@ -280,7 +280,7 @@ def get_track_info(ctx: Context, track_index: int) -> str:
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("get_track_info", {"track_index": track_index})
-        return json.dumps(result, indent=2)
+        return json.dumps(result, separators=(',', ':'))
     except Exception as e:
         logger.error(f"Error getting track info from Ableton: {str(e)}")
         return f"Error getting track info: {str(e)}"
@@ -601,7 +601,7 @@ def get_browser_items_at_path(ctx: Context, path: str) -> str:
             return (f"Error: {error}\n"
                    f"Available browser categories: {', '.join(available_cats)}")
         
-        return json.dumps(result, indent=2)
+        return json.dumps(result, separators=(',', ':'))
     except Exception as e:
         error_msg = str(e)
         if "Browser is not available" in error_msg:
@@ -685,7 +685,7 @@ def get_device_parameters(ctx: Context, track_index: int) -> str:
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("get_device_parameters", {"track_index": track_index})
-        return json.dumps(result, indent=2)
+        return json.dumps(result, separators=(',', ':'))
     except Exception as e:
         logger.error(f"Error getting device parameters: {str(e)}")
         return f"Error getting device parameters: {str(e)}"
@@ -733,7 +733,7 @@ def analyze_render(
             accept_dialog=accept_dialog,
             dialog_delay=dialog_delay,
         )
-        return json.dumps(result, indent=2)
+        return json.dumps(result, separators=(',', ':'))
     except FileNotFoundError as e:
         return f"Error: {e}. Check that the export folder exists and Ableton is configured to export there."
     except TimeoutError as e:

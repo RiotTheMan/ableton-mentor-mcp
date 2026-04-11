@@ -225,9 +225,8 @@ def analyze(audio: np.ndarray, sr: int) -> dict:
     result.update(_temporal_features(audio, sr))
     result.update(_stereo_features(audio, sr))
 
-    # Remove None values — caller shouldn't need to handle missing fields
-    # but keep them if the caller wants to know what failed
-    return result
+    # Strip None values — absent keys are cheaper than null tokens
+    return {k: v for k, v in result.items() if v is not None}
 
 
 # ---------------------------------------------------------------------------
