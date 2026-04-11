@@ -349,17 +349,21 @@ class AbletonMCP(ControlSurface):
     def _get_session_info(self):
         """Get information about the current session"""
         try:
+            mt = self._song.master_track
             result = {
                 "tempo": self._song.tempo,
-                "signature_numerator": self._song.signature_numerator,
-                "signature_denominator": self._song.signature_denominator,
+                "time_signature": "{}/{}".format(
+                    self._song.signature_numerator,
+                    self._song.signature_denominator
+                ),
                 "track_count": len(self._song.tracks),
                 "return_track_count": len(self._song.return_tracks),
-                "master_track": {
-                    "name": "Master",
-                    "volume": self._song.master_track.mixer_device.volume.value,
-                    "panning": self._song.master_track.mixer_device.panning.value
-                }
+                "master_volume": mt.mixer_device.volume.str_for_value(
+                    mt.mixer_device.volume.value
+                ),
+                "master_panning": mt.mixer_device.panning.str_for_value(
+                    mt.mixer_device.panning.value
+                ),
             }
             return result
         except Exception as e:
@@ -371,29 +375,27 @@ class AbletonMCP(ControlSurface):
         try:
             if track_index < 0 or track_index >= len(self._song.tracks):
                 raise IndexError("Track index out of range")
-            
+
             track = self._song.tracks[track_index]
-            
-            # Get clip slots
+
+            # Only emit occupied clip slots
             clip_slots = []
             for slot_index, slot in enumerate(track.clip_slots):
-                clip_info = None
-                if slot.has_clip:
-                    clip = slot.clip
-                    clip_info = {
-                        "name": clip.name,
-                        "length": clip.length,
-                        "is_playing": clip.is_playing,
-                        "is_recording": clip.is_recording
-                    }
-                
-                clip_slots.append({
+                if not slot.has_clip:
+                    continue
+                clip = slot.clip
+                clip_info = {
                     "index": slot_index,
-                    "has_clip": slot.has_clip,
-                    "clip": clip_info
-                })
-            
-            # Get devices
+                    "name": clip.name,
+                    "length": clip.length,
+                }
+                if clip.is_playing:
+                    clip_info["is_playing"] = True
+                if clip.is_recording:
+                    clip_info["is_recording"] = True
+                clip_slots.append(clip_info)
+
+            # Devices — omit if empty
             devices = []
             for device_index, device in enumerate(track.devices):
                 devices.append({
@@ -402,20 +404,32 @@ class AbletonMCP(ControlSurface):
                     "class_name": device.class_name,
                     "type": self._get_device_type(device)
                 })
-            
+
+            md = track.mixer_device
             result = {
                 "index": track_index,
                 "name": track.name,
-                "is_audio_track": track.has_audio_input,
-                "is_midi_track": track.has_midi_input,
-                "mute": track.mute,
-                "solo": track.solo,
-                "arm": track.arm,
-                "volume": track.mixer_device.volume.value,
-                "panning": track.mixer_device.panning.value,
-                "clip_slots": clip_slots,
-                "devices": devices
+                "type": "midi" if track.has_midi_input else "audio",
+                "volume": md.volume.str_for_value(md.volume.value),
+                "panning": md.panning.str_for_value(md.panning.value),
             }
+
+            # Only emit state flags when non-default
+            if track.mute:
+                result["mute"] = True
+            if track.solo:
+                result["solo"] = True
+            try:
+                if track.arm:
+                    result["arm"] = True
+            except Exception:
+                pass  # Group/Return tracks have no arm state
+
+            if clip_slots:
+                result["clip_slots"] = clip_slots
+            if devices:
+                result["devices"] = devices
+
             return result
         except Exception as e:
             self.log_message("Error getting track info: " + str(e))
