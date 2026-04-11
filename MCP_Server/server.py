@@ -5,7 +5,8 @@ import json
 import logging
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any, List, Union
+from pathlib import Path
+from typing import AsyncIterator, Dict, Any, List, Optional, Union
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -688,6 +689,61 @@ def get_device_parameters(ctx: Context, track_index: int) -> str:
     except Exception as e:
         logger.error(f"Error getting device parameters: {str(e)}")
         return f"Error getting device parameters: {str(e)}"
+
+@mcp.tool()
+def analyze_render(
+    ctx: Context,
+    export_folder: str = str(Path.home() / "Music" / "Ableton" / "Exports"),
+    timeout: float = 120.0,
+    trigger: bool = True,
+    accept_dialog: bool = True,
+    dialog_delay: float = 2.0,
+) -> str:
+    """
+    Trigger an Ableton export and return psychoacoustic analysis of the rendered file.
+
+    Flow:
+      1. Sends Cmd+Shift+R to Ableton (opens Export Audio/Video dialog)
+      2. Optionally presses Return to accept the dialog with current settings
+      3. Watches the export folder for the new file
+      4. Loads the file and computes ~17 psychoacoustic features
+
+    Parameters:
+    - export_folder: Folder Ableton writes exports to
+                     (default: ~/Music/Ableton/Exports)
+    - timeout:       Max seconds to wait for the render to complete (default: 120)
+    - trigger:       Send Cmd+Shift+R before watching. Set False if you already
+                     started the export manually (default: True)
+    - accept_dialog: Press Return to auto-accept the export dialog (default: True).
+                     Set False to open the dialog and let the user configure it.
+    - dialog_delay:  Seconds to wait for the dialog before pressing Return (default: 2.0)
+
+    Returns JSON with:
+      "file"     — absolute path of the rendered file
+      "features" — dict of psychoacoustic features (lufs, lra, spectral centroid, etc.)
+
+    Note: Requires macOS Accessibility permissions for System Events AppleScript.
+    """
+    try:
+        from .render_pipeline import render_and_analyze
+        result = render_and_analyze(
+            export_folder=Path(export_folder),
+            timeout=timeout,
+            trigger=trigger,
+            accept_dialog=accept_dialog,
+            dialog_delay=dialog_delay,
+        )
+        return json.dumps(result, indent=2)
+    except FileNotFoundError as e:
+        return f"Error: {e}. Check that the export folder exists and Ableton is configured to export there."
+    except TimeoutError as e:
+        return f"Error: {e}. The render may still be in progress, or the export folder may be wrong."
+    except RuntimeError as e:
+        return f"Error triggering render: {e}. Make sure Ableton is running and macOS Accessibility is enabled for your terminal/IDE."
+    except Exception as e:
+        logger.error(f"Error in analyze_render: {e}")
+        return f"Error: {e}"
+
 
 # Main execution
 def main():
