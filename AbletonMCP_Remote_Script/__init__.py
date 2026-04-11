@@ -669,40 +669,37 @@ class AbletonMCP(ControlSurface):
             def extract_device(device):
                 params = []
                 for p in device.parameters:
+                    if not p.is_enabled:
+                        continue
                     param = {
                         "name": p.name,
-                        "value": p.value,
                         "display_value": p.str_for_value(p.value),
-                        "min": p.min,
-                        "max": p.max,
-                        "is_enabled": p.is_enabled,
-                        "is_quantized": p.is_quantized,
                     }
                     if p.is_quantized:
                         try:
-                            param["value_items"] = list(p.value_items)
+                            items = list(p.value_items)
+                            if items:
+                                param["value_items"] = items
                         except Exception:
-                            param["value_items"] = []
+                            pass
                     params.append(param)
 
                 device_data = {
                     "name": device.name,
                     "class_name": device.class_name,
                     "type": int(device.type),
-                    "is_active": device.is_active,
                     "parameters": params,
-                    "chains": []
                 }
+                if not device.is_active:
+                    device_data["is_active"] = False
 
                 if device.can_have_chains:
+                    chains = []
                     for chain in device.chains:
-                        chain_devices = []
-                        for chained_device in chain.devices:
-                            chain_devices.append(extract_device(chained_device))
-                        device_data["chains"].append({
-                            "name": chain.name,
-                            "devices": chain_devices
-                        })
+                        chain_devices = [extract_device(d) for d in chain.devices]
+                        chains.append({"name": chain.name, "devices": chain_devices})
+                    if chains:
+                        device_data["chains"] = chains
 
                 return device_data
 
