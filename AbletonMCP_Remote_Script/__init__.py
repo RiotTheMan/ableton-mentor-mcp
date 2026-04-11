@@ -312,6 +312,9 @@ class AbletonMCP(ControlSurface):
                 except queue.Empty:
                     response["status"] = "error"
                     response["message"] = "Timeout waiting for operation to complete"
+            elif command_type == "get_device_parameters":
+                track_index = params.get("track_index", 0)
+                response["result"] = self._get_device_parameters(track_index)
             elif command_type == "get_browser_item":
                 uri = params.get("uri", None)
                 path = params.get("path", None)
@@ -655,6 +658,61 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error stopping playback: " + str(e))
             raise
     
+    def _get_device_parameters(self, track_index):
+        """Get all device parameters for a track, including nested rack chains"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            def extract_device(device):
+                params = []
+                for p in device.parameters:
+                    param = {
+                        "name": p.name,
+                        "value": p.value,
+                        "display_value": p.str_for_value(p.value),
+                        "min": p.min,
+                        "max": p.max,
+                        "is_enabled": p.is_enabled,
+                        "is_quantized": p.is_quantized,
+                    }
+                    if p.is_quantized:
+                        try:
+                            param["value_items"] = list(p.value_items)
+                        except Exception:
+                            param["value_items"] = []
+                    params.append(param)
+
+                device_data = {
+                    "name": device.name,
+                    "class_name": device.class_name,
+                    "type": int(device.type),
+                    "is_active": device.is_active,
+                    "parameters": params,
+                    "chains": []
+                }
+
+                if device.can_have_chains:
+                    for chain in device.chains:
+                        chain_devices = []
+                        for chained_device in chain.devices:
+                            chain_devices.append(extract_device(chained_device))
+                        device_data["chains"].append({
+                            "name": chain.name,
+                            "devices": chain_devices
+                        })
+
+                return device_data
+
+            devices = [extract_device(d) for d in track.devices]
+            return {"track_index": track_index, "track_name": track.name, "devices": devices}
+
+        except Exception as e:
+            self.log_message("Error getting device parameters: " + str(e))
+            raise
+
     def _get_browser_item(self, uri, path):
         """Get a browser item by URI or path"""
         try:

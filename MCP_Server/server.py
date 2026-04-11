@@ -668,6 +668,27 @@ def load_drum_kit(ctx: Context, track_index: int, rack_uri: str, kit_path: str) 
         logger.error(f"Error loading drum kit: {str(e)}")
         return f"Error loading drum kit: {str(e)}"
 
+@mcp.tool()
+def get_device_parameters(ctx: Context, track_index: int) -> str:
+    """
+    Get all device parameters for every device on a track, including devices
+    nested inside racks (Instrument Racks, Audio Effect Racks, Drum Racks).
+
+    Parameters:
+    - track_index: The index of the track to inspect
+
+    Returns a JSON object with each device's name, class, type, active state,
+    and all parameters (name, value, display_value, min, max, is_enabled).
+    Rack chains are included recursively under each rack device.
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("get_device_parameters", {"track_index": track_index})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting device parameters: {str(e)}")
+        return f"Error getting device parameters: {str(e)}"
+
 # Main execution
 def main():
     """Run the MCP server"""
