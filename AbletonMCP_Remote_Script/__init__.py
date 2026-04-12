@@ -350,21 +350,42 @@ class AbletonMCP(ControlSurface):
         """Get information about the current session"""
         try:
             mt = self._song.master_track
+
+            tracks = []
+            for i, track in enumerate(self._song.tracks):
+                t = {
+                    "index": i,
+                    "name": track.name,
+                    "type": "midi" if track.has_midi_input else "audio",
+                }
+                device_names = [d.class_name for d in track.devices]
+                if device_names:
+                    t["devices"] = device_names
+                clip_names = [
+                    slot.clip.name
+                    for slot in track.clip_slots
+                    if slot.has_clip
+                ]
+                if clip_names:
+                    t["clips"] = clip_names
+                tracks.append(t)
+
             result = {
                 "tempo": self._song.tempo,
                 "time_signature": "{}/{}".format(
                     self._song.signature_numerator,
                     self._song.signature_denominator
                 ),
-                "track_count": len(self._song.tracks),
-                "return_track_count": len(self._song.return_tracks),
                 "master_volume": mt.mixer_device.volume.str_for_value(
                     mt.mixer_device.volume.value
                 ),
                 "master_panning": mt.mixer_device.panning.str_for_value(
                     mt.mixer_device.panning.value
                 ),
+                "tracks": tracks,
             }
+            if self._song.return_tracks:
+                result["return_track_count"] = len(self._song.return_tracks)
             return result
         except Exception as e:
             self.log_message("Error getting session info: " + str(e))

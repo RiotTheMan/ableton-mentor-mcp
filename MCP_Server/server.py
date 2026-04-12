@@ -260,7 +260,10 @@ def get_ableton_connection():
 
 @mcp.tool()
 def get_session_info(ctx: Context) -> str:
-    """Get detailed information about the current Ableton session"""
+    """Get an overview of the current Ableton session: tempo, time signature,
+    master volume/panning, and a compact tracks list (index, name, type,
+    device class names, occupied clip names). Use this first to identify
+    which tracks need deeper inspection via get_track_info or get_device_parameters."""
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("get_session_info")
