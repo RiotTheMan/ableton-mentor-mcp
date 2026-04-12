@@ -229,7 +229,7 @@ class AbletonMCP(ControlSurface):
             elif command_type in ["create_midi_track", "set_track_name",
                                  "set_track_color", "create_clip", "add_notes_to_clip", "set_clip_name",
                                  "set_tempo", "fire_clip", "stop_clip",
-                                 "start_playback", "stop_playback", "load_browser_item"]:
+                                 "start_playback", "stop_playback", "set_song_position", "load_browser_item"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -278,6 +278,9 @@ class AbletonMCP(ControlSurface):
                             result = self._start_playback()
                         elif command_type == "stop_playback":
                             result = self._stop_playback()
+                        elif command_type == "set_song_position":
+                            beat = params.get("beat", 0)
+                            result = self._set_song_position(beat)
                         elif command_type == "load_instrument_or_effect":
                             track_index = params.get("track_index", 0)
                             uri = params.get("uri", "")
@@ -368,7 +371,74 @@ class AbletonMCP(ControlSurface):
                 ]
                 if clip_names:
                     t["clips"] = clip_names
+                # Mixer — only emit non-default values
+                try:
+                    md = track.mixer_device
+                    vol_str = md.volume.str_for_value(md.volume.value)
+                    if vol_str not in ("0.00 dB", "0.0 dB", "0 dB"):
+                        t["volume"] = vol_str
+                    pan_str = md.panning.str_for_value(md.panning.value)
+                    if pan_str not in ("C", "0", "0%", "0 %", "Center"):
+                        t["pan"] = pan_str
+                    sends = {}
+                    for idx, send in enumerate(md.sends):
+                        if send.value > 0.001:
+                            sends[idx] = send.str_for_value(send.value)
+                    if sends:
+                        t["sends"] = sends
+                except Exception:
+                    pass
+                # Automation flag — set if any clip has a non-flat envelope
+                try:
+                    found_auto = False
+                    for slot in track.clip_slots:
+                        if found_auto:
+                            break
+                        if not slot.has_clip:
+                            continue
+                        clip = slot.clip
+                        for env in clip.automation_envelopes:
+                            try:
+                                vals = [env.value_at_time(clip.loop_start + clip.length * k / 3.0) for k in range(4)]
+                                if max(vals) - min(vals) > 0.005:
+                                    found_auto = True
+                                    break
+                            except Exception:
+                                pass
+                    if found_auto:
+                        t["automated"] = True
+                except Exception:
+                    pass
+                # Routing — only if non-default
+                try:
+                    out = track.output_routing_type.display_name
+                    if out and out not in ("Master", "Main", ""):
+                        t["output_routing"] = out
+                except Exception:
+                    pass
                 tracks.append(t)
+
+            # Return tracks (full compact entries, replaces return_track_count)
+            return_tracks = []
+            for i, track in enumerate(self._song.return_tracks):
+                rt = {"index": i, "name": track.name}
+                device_names = [d.class_name for d in track.devices]
+                if device_names:
+                    rt["devices"] = device_names
+                try:
+                    md = track.mixer_device
+                    vol_str = md.volume.str_for_value(md.volume.value)
+                    if vol_str not in ("0.00 dB", "0.0 dB", "0 dB"):
+                        rt["volume"] = vol_str
+                    pan_str = md.panning.str_for_value(md.panning.value)
+                    if pan_str not in ("C", "0", "0%", "0 %", "Center"):
+                        rt["pan"] = pan_str
+                except Exception:
+                    pass
+                return_tracks.append(rt)
+
+            # Master
+            master_devices = [d.class_name for d in mt.devices]
 
             result = {
                 "tempo": self._song.tempo,
@@ -376,16 +446,25 @@ class AbletonMCP(ControlSurface):
                     self._song.signature_numerator,
                     self._song.signature_denominator
                 ),
-                "master_volume": mt.mixer_device.volume.str_for_value(
-                    mt.mixer_device.volume.value
-                ),
-                "master_panning": mt.mixer_device.panning.str_for_value(
-                    mt.mixer_device.panning.value
-                ),
                 "tracks": tracks,
             }
-            if self._song.return_tracks:
-                result["return_track_count"] = len(self._song.return_tracks)
+            mv = mt.mixer_device.volume.str_for_value(mt.mixer_device.volume.value)
+            if mv not in ("0.00 dB", "0.0 dB", "0 dB"):
+                result["master_volume"] = mv
+            mp = mt.mixer_device.panning.str_for_value(mt.mixer_device.panning.value)
+            if mp not in ("C", "0", "0%", "0 %", "Center"):
+                result["master_panning"] = mp
+            if return_tracks:
+                result["return_tracks"] = return_tracks
+            if master_devices:
+                result["master_devices"] = master_devices
+            # Named scenes only
+            try:
+                scene_names = [s.name for s in self._song.scenes if s.name.strip()]
+                if scene_names:
+                    result["scenes"] = scene_names
+            except Exception:
+                pass
             return result
         except Exception as e:
             self.log_message("Error getting session info: " + str(e))
@@ -414,6 +493,62 @@ class AbletonMCP(ControlSurface):
                     clip_info["is_playing"] = True
                 if clip.is_recording:
                     clip_info["is_recording"] = True
+                try:
+                    if abs(clip.gain - 1.0) > 0.01:
+                        clip_info["gain"] = round(clip.gain, 3)
+                except Exception:
+                    pass
+                try:
+                    if clip.pitch_coarse != 0:
+                        clip_info["pitch"] = clip.pitch_coarse
+                except Exception:
+                    pass
+                try:
+                    if abs(clip.pitch_fine) > 0.5:
+                        clip_info["pitch_fine"] = round(clip.pitch_fine, 1)
+                except Exception:
+                    pass
+                # Warp mode (audio clips only)
+                try:
+                    if clip.is_audio_clip:
+                        warp_modes = ["Beats","Tones","Texture","Re-Pitch","Complex","REX","Complex Pro"]
+                        wm = int(clip.warp_mode)
+                        if 0 <= wm < len(warp_modes):
+                            clip_info["warp_mode"] = warp_modes[wm]
+                        if not clip.warping:
+                            clip_info["warping"] = False
+                except Exception:
+                    pass
+                # Loop region (only if non-trivial)
+                try:
+                    if clip.looping and (clip.loop_start > 0 or round(clip.loop_end, 3) != round(clip.length, 3)):
+                        clip_info["loop"] = {
+                            "start": round(clip.loop_start, 3),
+                            "end": round(clip.loop_end, 3),
+                        }
+                except Exception:
+                    pass
+                # Automation envelopes — sample 6 points, report non-flat only
+                try:
+                    auto = []
+                    for env in clip.automation_envelopes:
+                        try:
+                            param = env.device_parameter
+                            span = max(clip.length, 0.001)
+                            vals = [env.value_at_time(clip.loop_start + span * i / 5.0) for i in range(6)]
+                            mn, mx = min(vals), max(vals)
+                            if mx - mn > 0.005:
+                                auto.append({
+                                    "param": param.name,
+                                    "min": param.str_for_value(mn),
+                                    "max": param.str_for_value(mx),
+                                })
+                        except Exception:
+                            pass
+                    if auto:
+                        clip_info["automation"] = auto
+                except Exception:
+                    pass
                 clip_slots.append(clip_info)
 
             # Devices — omit if empty
@@ -431,9 +566,13 @@ class AbletonMCP(ControlSurface):
                 "index": track_index,
                 "name": track.name,
                 "type": "midi" if track.has_midi_input else "audio",
-                "volume": md.volume.str_for_value(md.volume.value),
-                "panning": md.panning.str_for_value(md.panning.value),
             }
+            vol_str = md.volume.str_for_value(md.volume.value)
+            if vol_str not in ("0.00 dB", "0.0 dB", "0 dB"):
+                result["volume"] = vol_str
+            pan_str = md.panning.str_for_value(md.panning.value)
+            if pan_str not in ("C", "0", "0%", "0 %", "Center"):
+                result["panning"] = pan_str
 
             # Only emit state flags when non-default
             if track.mute:
@@ -445,6 +584,31 @@ class AbletonMCP(ControlSurface):
                     result["arm"] = True
             except Exception:
                 pass  # Group/Return tracks have no arm state
+
+            # Sends — only non-zero
+            try:
+                sends = {}
+                for idx, send in enumerate(md.sends):
+                    if send.value > 0.001:
+                        sends[idx] = send.str_for_value(send.value)
+                if sends:
+                    result["sends"] = sends
+            except Exception:
+                pass
+
+            # Routing — only if non-default
+            try:
+                out = track.output_routing_type.display_name
+                if out and out not in ("Master", "Main", ""):
+                    result["output_routing"] = out
+            except Exception:
+                pass
+            try:
+                inp = track.input_routing_type.display_name
+                if inp and inp not in ("No Input", ""):
+                    result["input_routing"] = inp
+            except Exception:
+                pass
 
             if clip_slots:
                 result["clip_slots"] = clip_slots
@@ -693,6 +857,15 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error stopping playback: " + str(e))
             raise
     
+    def _set_song_position(self, beat):
+        """Seek playback head to a specific beat position."""
+        try:
+            self._song.current_song_time = float(beat)
+            return {"beat": float(beat)}
+        except Exception as e:
+            self.log_message("Error setting song position: " + str(e))
+            raise
+
     def _get_device_parameters(self, track_index):
         """Get all device parameters for a track, including nested rack chains"""
         try:

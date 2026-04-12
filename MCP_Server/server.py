@@ -106,7 +106,7 @@ class AbletonConnection:
             "create_midi_track", "create_audio_track", "set_track_name",
             "set_track_color", "create_clip", "add_notes_to_clip", "set_clip_name",
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
-            "start_playback", "stop_playback", "load_instrument_or_effect"
+            "start_playback", "stop_playback", "set_song_position", "load_instrument_or_effect"
         ]
         
         try:
@@ -696,29 +696,57 @@ def get_device_parameters(ctx: Context, track_index: int) -> str:
 @mcp.tool()
 def analyze_snippet(
     ctx: Context,
-    seconds: float = 8.0,
+    bar: int = 1,
+    bars: int = 4,
     device: str = "BlackHole",
 ) -> str:
     """
-    Capture a short loopback snippet from Ableton and return psychoacoustic analysis.
+    Seek Ableton to a bar, auto-play, capture loopback audio, auto-stop, return psychoacoustic features.
 
-    Flow:
-      1. Opens a capture on the loopback device (e.g. BlackHole) for `seconds`
-      2. Hit play in Ableton — the capture runs while you play
-      3. Returns ~17 psychoacoustic features when done
+    Full flow (no manual play needed):
+      1. Fetches session tempo + time signature
+      2. Seeks playback head to `bar`
+      3. Starts playback
+      4. Captures `bars` bars of audio from the loopback device
+      5. Stops playback
+      6. Returns ~17 psychoacoustic features
 
     Parameters:
-    - seconds: How long to capture (default 8.0 — covers 4 bars at 128 BPM).
-               Adjust for your tempo: bars * (60 / bpm) * beats_per_bar
-    - device:  Substring of the loopback device name (default: "BlackHole").
-               Call list_audio_devices if unsure.
+    - bar:    Bar number to start from, 1-indexed (default: 1).
+    - bars:   Number of bars to capture (default: 4).
+    - device: Substring of the loopback device name (default: "BlackHole").
+              Call list_audio_devices if unsure.
 
-    Requires BlackHole (or another loopback device) installed and set as
-    an output in Ableton's Audio preferences.
+    Requires BlackHole (or another loopback device) installed and routed
+    as Ableton's audio output.
     """
+    import time as _time
     try:
         from .loopback import capture_and_analyze
+        ableton = get_ableton_connection()
+
+        # Fetch tempo + time signature
+        info = ableton.send_command("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+
+        # Seek to the requested bar (beats are quarter notes, 1-indexed bars)
+        beat_pos = (bar - 1) * beats_per_bar
+        ableton.send_command("set_song_position", {"beat": beat_pos})
+
+        # Compute capture duration and start playback
+        seconds = bars * (60.0 / tempo) * beats_per_bar
+        ableton.send_command("start_playback")
+        _time.sleep(0.15)  # let Ableton stabilise before opening capture
+
         result = capture_and_analyze(seconds=seconds, device=device)
+
+        ableton.send_command("stop_playback")
+
+        result["bar"] = bar
+        result["bars"] = bars
+        result["tempo"] = round(tempo, 1)
         return json.dumps(result, separators=(',', ':'))
     except RuntimeError as e:
         return f"Error: {e}"
