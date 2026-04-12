@@ -694,6 +694,52 @@ def get_device_parameters(ctx: Context, track_index: int) -> str:
         return f"Error getting device parameters: {str(e)}"
 
 @mcp.tool()
+def analyze_snippet(
+    ctx: Context,
+    seconds: float = 8.0,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Capture a short loopback snippet from Ableton and return psychoacoustic analysis.
+
+    Flow:
+      1. Opens a capture on the loopback device (e.g. BlackHole) for `seconds`
+      2. Hit play in Ableton — the capture runs while you play
+      3. Returns ~17 psychoacoustic features when done
+
+    Parameters:
+    - seconds: How long to capture (default 8.0 — covers 4 bars at 128 BPM).
+               Adjust for your tempo: bars * (60 / bpm) * beats_per_bar
+    - device:  Substring of the loopback device name (default: "BlackHole").
+               Call list_audio_devices if unsure.
+
+    Requires BlackHole (or another loopback device) installed and set as
+    an output in Ableton's Audio preferences.
+    """
+    try:
+        from .loopback import capture_and_analyze
+        result = capture_and_analyze(seconds=seconds, device=device)
+        return json.dumps(result, separators=(',', ':'))
+    except RuntimeError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        logger.error(f"Error in analyze_snippet: {e}")
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def list_audio_devices(ctx: Context) -> str:
+    """List available audio input devices. Use this to find the right device
+    name to pass to analyze_snippet if BlackHole is not detected."""
+    try:
+        from .loopback import list_input_devices
+        devices = list_input_devices()
+        return json.dumps(devices, separators=(',', ':'))
+    except Exception as e:
+        return f"Error listing devices: {e}"
+
+
+@mcp.tool()
 def analyze_render(
     ctx: Context,
     export_folder: str = str(Path.home() / "Music" / "Ableton" / "Exports"),
