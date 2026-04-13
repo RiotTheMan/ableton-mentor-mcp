@@ -108,7 +108,10 @@ class AbletonConnection:
             "create_midi_track", "create_audio_track", "set_track_name",
             "set_track_color", "create_clip", "add_notes_to_clip", "set_clip_name",
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
-            "start_playback", "stop_playback", "set_song_position", "load_instrument_or_effect"
+            "start_playback", "stop_playback", "set_song_position", "load_instrument_or_effect",
+            "set_track_volume", "set_track_pan", "set_track_send",
+            "set_track_solo", "set_track_mute", "set_device_parameter_by_display",
+            "undo", "redo", "set_mixer_snapshot", "set_clip_properties"
         ]
         
         try:
@@ -639,6 +642,667 @@ async def get_device_parameters(ctx: Context, track_index: int) -> str:
     except Exception as e:
         logger.error(f"Error getting device parameters: {str(e)}")
         return f"Error getting device parameters: {str(e)}"
+
+@mcp.tool()
+async def set_track_volume(ctx: Context, track_index: int, db: float) -> str:
+    """
+    Set a track's volume in dB.
+
+    Parameters:
+    - track_index: The index of the track
+    - db: Volume in dB (range roughly -70 to +6, where 0 dB is unity)
+    """
+    try:
+        result = await _ableton_cmd("set_track_volume", {"track_index": track_index, "db": db})
+        return f"Set track {track_index} volume to {result.get('volume', f'{db} dB')}"
+    except Exception as e:
+        logger.error(f"Error setting track volume: {str(e)}")
+        return f"Error setting track volume: {str(e)}"
+
+
+@mcp.tool()
+async def set_track_pan(ctx: Context, track_index: int, value: float) -> str:
+    """
+    Set a track's panning.
+
+    Parameters:
+    - track_index: The index of the track
+    - value: Pan value from -1.0 (full left) to 1.0 (full right), 0.0 = center
+    """
+    try:
+        result = await _ableton_cmd("set_track_pan", {"track_index": track_index, "value": value})
+        return f"Set track {track_index} pan to {result.get('pan', value)}"
+    except Exception as e:
+        logger.error(f"Error setting track pan: {str(e)}")
+        return f"Error setting track pan: {str(e)}"
+
+
+@mcp.tool()
+async def set_device_parameter(
+    ctx: Context,
+    track_index: int,
+    device_index: int,
+    parameter_name: str,
+    value: float,
+) -> str:
+    """
+    Set a device parameter on a track.
+
+    Parameters:
+    - track_index: The index of the track containing the device
+    - device_index: The index of the device on the track
+    - parameter_name: The exact name of the parameter (as returned by get_device_parameters)
+    - value: The new value. For continuous params use the raw float in the parameter's
+             min/max range. For quantized params use the integer index into value_items.
+    """
+    try:
+        result = await _ableton_cmd("set_device_parameter", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_name": parameter_name,
+            "value": value,
+        })
+        return (f"Set {result.get('device', '?')}.{result.get('parameter', '?')} "
+                f"to {result.get('display_value', value)}")
+    except Exception as e:
+        logger.error(f"Error setting device parameter: {str(e)}")
+        return f"Error setting device parameter: {str(e)}"
+
+
+@mcp.tool()
+async def set_track_send(ctx: Context, track_index: int, send_index: int, value: float) -> str:
+    """
+    Set a track's send level.
+
+    Parameters:
+    - track_index: The index of the track
+    - send_index: The index of the send (0 = Send A, 1 = Send B, etc.)
+    - value: Send level from 0.0 (off) to 1.0 (full)
+    """
+    try:
+        result = await _ableton_cmd("set_track_send", {
+            "track_index": track_index,
+            "send_index": send_index,
+            "value": value,
+        })
+        return f"Set track {track_index} send {send_index} to {result.get('send', value)}"
+    except Exception as e:
+        logger.error(f"Error setting track send: {str(e)}")
+        return f"Error setting track send: {str(e)}"
+
+
+@mcp.tool()
+async def set_track_solo(ctx: Context, track_index: int, state: bool) -> str:
+    """
+    Set a track's solo state.
+
+    Parameters:
+    - track_index: The index of the track
+    - state: True to solo, False to unsolo
+    """
+    try:
+        result = await _ableton_cmd("set_track_solo", {"track_index": track_index, "state": state})
+        return f"Set track {track_index} solo to {result.get('solo', state)}"
+    except Exception as e:
+        logger.error(f"Error setting track solo: {str(e)}")
+        return f"Error setting track solo: {str(e)}"
+
+
+@mcp.tool()
+async def set_track_mute(ctx: Context, track_index: int, state: bool) -> str:
+    """
+    Set a track's mute state.
+
+    Parameters:
+    - track_index: The index of the track
+    - state: True to mute, False to unmute
+    """
+    try:
+        result = await _ableton_cmd("set_track_mute", {"track_index": track_index, "state": state})
+        return f"Set track {track_index} mute to {result.get('mute', state)}"
+    except Exception as e:
+        logger.error(f"Error setting track mute: {str(e)}")
+        return f"Error setting track mute: {str(e)}"
+
+
+@mcp.tool()
+async def undo(ctx: Context) -> str:
+    """Undo the last action in Ableton."""
+    try:
+        await _ableton_cmd("undo")
+        return "Undone"
+    except Exception as e:
+        logger.error(f"Error performing undo: {str(e)}")
+        return f"Error performing undo: {str(e)}"
+
+
+@mcp.tool()
+async def redo(ctx: Context) -> str:
+    """Redo the last undone action in Ableton."""
+    try:
+        await _ableton_cmd("redo")
+        return "Redone"
+    except Exception as e:
+        logger.error(f"Error performing redo: {str(e)}")
+        return f"Error performing redo: {str(e)}"
+
+
+@mcp.tool()
+async def get_arrangement_clips(ctx: Context) -> str:
+    """
+    Get all arrangement-view clips across all tracks.
+    Returns each track's clips with name, start_time, end_time, length,
+    loop_start, loop_end, and color. Only tracks that have clips are included.
+    """
+    try:
+        result = await _ableton_cmd("get_arrangement_clips")
+        return json.dumps(result, separators=(',', ':'))
+    except Exception as e:
+        logger.error(f"Error getting arrangement clips: {str(e)}")
+        return f"Error getting arrangement clips: {str(e)}"
+
+
+@mcp.tool()
+async def set_device_parameter_by_display(
+    ctx: Context,
+    track_index: int,
+    device_index: int,
+    parameter_name: str,
+    display_value: str,
+) -> str:
+    """
+    Set a device parameter by its human-readable display value (e.g., "5.0 dB", "40 %").
+    The Remote Script binary-searches the parameter range to find the raw value that
+    produces a matching display string. For quantized parameters, it matches against
+    value_items directly.
+
+    Parameters:
+    - track_index: The index of the track containing the device
+    - device_index: The index of the device on the track
+    - parameter_name: The exact name of the parameter
+    - display_value: The target display string (as shown by get_device_parameters)
+    """
+    try:
+        result = await _ableton_cmd("set_device_parameter_by_display", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_name": parameter_name,
+            "display_value": display_value,
+        })
+        note = result.get("note", "")
+        msg = (f"Set {result.get('device', '?')}.{result.get('parameter', '?')} "
+               f"to {result.get('display_value', display_value)}")
+        if note:
+            msg += f" ({note})"
+        return msg
+    except Exception as e:
+        logger.error(f"Error setting device parameter by display: {str(e)}")
+        return f"Error setting device parameter by display: {str(e)}"
+
+
+@mcp.tool()
+async def mix_analysis(
+    ctx: Context,
+    bar: int = 1,
+    bars: int = 4,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Per-track spectral analysis of the mix.
+
+    Solos each non-muted track one at a time, captures a loopback snippet,
+    then captures the full master with nothing soloed. Returns a combined
+    report with per-track spectral features and master analysis.
+
+    Parameters:
+    - bar:    Bar number to start from, 1-indexed (default: 1).
+    - bars:   Number of bars to capture per track (default: 4).
+    - device: Substring of the loopback device name (default: "BlackHole").
+
+    WARNING: This is slow — captures audio once per audible track plus once
+    for the master. For a 10-track session with 4-bar captures at 130 BPM it
+    will take roughly 80 seconds.
+    """
+    try:
+        from .loopback import capture_and_analyze
+
+        # 1. Get session info
+        info = await _ableton_cmd("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+        beat_pos = (bar - 1) * beats_per_bar
+        seconds = bars * (60.0 / tempo) * beats_per_bar
+
+        tracks = info.get("tracks", [])
+
+        # 2. Record original solo/mute states
+        original_states = []
+        for t in tracks:
+            idx = t["index"]
+            t_info = await _ableton_cmd("get_track_info", {"track_index": idx})
+            original_states.append({
+                "index": idx,
+                "solo": t_info.get("solo", False),
+                "mute": t_info.get("mute", False),
+            })
+
+        # Helper to capture one snippet
+        async def _capture():
+            await _ableton_cmd("set_song_position", {"beat": beat_pos})
+            await _ableton_cmd("start_playback")
+            await asyncio.sleep(0.15)
+            result = await asyncio.to_thread(capture_and_analyze, seconds, device)
+            await _ableton_cmd("stop_playback")
+            return result
+
+        per_track = []
+        try:
+            # 3. Unsolo everything first
+            for st in original_states:
+                if st["solo"]:
+                    await _ableton_cmd("set_track_solo", {"track_index": st["index"], "state": False})
+
+            # 4. Per-track: solo → capture → unsolo
+            for t in tracks:
+                idx = t["index"]
+                state = next(s for s in original_states if s["index"] == idx)
+                if state["mute"]:
+                    continue
+
+                await _ableton_cmd("set_track_solo", {"track_index": idx, "state": True})
+                await asyncio.sleep(0.05)
+
+                features = await _capture()
+                per_track.append({
+                    "track_index": idx,
+                    "track_name": t.get("name", ""),
+                    "features": features,
+                })
+
+                await _ableton_cmd("set_track_solo", {"track_index": idx, "state": False})
+                await asyncio.sleep(0.05)
+
+            # 5. Master capture (nothing soloed)
+            master = await _capture()
+
+        finally:
+            # 6. Restore original solo/mute states
+            for st in original_states:
+                await _ableton_cmd("set_track_solo", {"track_index": st["index"], "state": st["solo"]})
+                await _ableton_cmd("set_track_mute", {"track_index": st["index"], "state": st["mute"]})
+
+        report = {
+            "tempo": round(tempo, 1),
+            "bar": bar,
+            "bars": bars,
+            "per_track": per_track,
+            "master": master,
+        }
+        return json.dumps(report, separators=(',', ':'))
+
+    except RuntimeError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        logger.error(f"Error in mix_analysis: {e}")
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def get_mixer_snapshot(ctx: Context) -> str:
+    """
+    Capture the full mixer state: volume, pan, mute, solo, sends,
+    and device on/off for every track. Use with set_mixer_snapshot to A/B mixes.
+    """
+    try:
+        result = await _ableton_cmd("get_mixer_snapshot")
+        return json.dumps(result, separators=(',', ':'))
+    except Exception as e:
+        logger.error(f"Error getting mixer snapshot: {str(e)}")
+        return f"Error getting mixer snapshot: {str(e)}"
+
+
+@mcp.tool()
+async def set_mixer_snapshot(ctx: Context, snapshot: str) -> str:
+    """
+    Restore a previously saved mixer snapshot (from get_mixer_snapshot).
+
+    Parameters:
+    - snapshot: JSON string of the snapshot to restore
+    """
+    try:
+        snap = json.loads(snapshot)
+        result = await _ableton_cmd("set_mixer_snapshot", {"snapshot": snap})
+        return f"Restored mixer snapshot ({result.get('applied', 0)} tracks)"
+    except Exception as e:
+        logger.error(f"Error setting mixer snapshot: {str(e)}")
+        return f"Error setting mixer snapshot: {str(e)}"
+
+
+@mcp.tool()
+async def compare_snippets(
+    ctx: Context,
+    bar_a: int = 1,
+    bar_b: int = 1,
+    bars: int = 4,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Capture two snippets and return a feature-by-feature comparison.
+
+    Useful for A/B testing: capture bar_a, make changes, capture bar_b (can be same bar).
+    If bar_a == bar_b, captures twice with a short pause between for before/after comparisons.
+
+    Parameters:
+    - bar_a: Bar number for first capture
+    - bar_b: Bar number for second capture
+    - bars: Number of bars per capture (default: 4)
+    - device: Loopback device name substring
+    """
+    try:
+        from .loopback import capture_and_analyze
+        from .psycho_features import compare
+
+        info = await _ableton_cmd("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+        seconds = bars * (60.0 / tempo) * beats_per_bar
+
+        async def _capture_bar(bar):
+            beat_pos = (bar - 1) * beats_per_bar
+            await _ableton_cmd("set_song_position", {"beat": beat_pos})
+            await _ableton_cmd("start_playback")
+            await asyncio.sleep(0.15)
+            result = await asyncio.to_thread(capture_and_analyze, seconds, device)
+            await _ableton_cmd("stop_playback")
+            return result
+
+        snap_a = await _capture_bar(bar_a)
+        snap_b = await _capture_bar(bar_b)
+
+        delta = compare(snap_a["features"], snap_b["features"])
+
+        report = {
+            "bar_a": bar_a,
+            "bar_b": bar_b,
+            "bars": bars,
+            "features_a": snap_a["features"],
+            "features_b": snap_b["features"],
+            "delta": delta,
+        }
+        return json.dumps(report, separators=(',', ':'))
+
+    except Exception as e:
+        logger.error(f"Error in compare_snippets: {e}")
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def masking_analysis(
+    ctx: Context,
+    bar: int = 1,
+    bars: int = 2,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Detect frequency masking between tracks.
+
+    Solos each track, captures raw audio, then analyzes which pairs of tracks
+    compete for the same frequency bands.
+
+    Parameters:
+    - bar: Bar number to start from (default: 1)
+    - bars: Number of bars to capture per track (default: 2, kept short for speed)
+    - device: Loopback device name substring
+
+    WARNING: Slow — captures audio once per audible track.
+    """
+    try:
+        from .loopback import capture_audio
+        from .psycho_features import masking_report
+
+        info = await _ableton_cmd("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+        beat_pos = (bar - 1) * beats_per_bar
+        seconds = bars * (60.0 / tempo) * beats_per_bar
+
+        tracks = info.get("tracks", [])
+
+        # Record original states
+        original_states = []
+        for t in tracks:
+            idx = t["index"]
+            t_info = await _ableton_cmd("get_track_info", {"track_index": idx})
+            original_states.append({
+                "index": idx,
+                "solo": t_info.get("solo", False),
+                "mute": t_info.get("mute", False),
+            })
+
+        audio_tracks = []
+        try:
+            # Unsolo everything
+            for st in original_states:
+                if st["solo"]:
+                    await _ableton_cmd("set_track_solo", {"track_index": st["index"], "state": False})
+
+            # Per-track: solo → capture raw audio → unsolo
+            for t in tracks:
+                idx = t["index"]
+                state = next(s for s in original_states if s["index"] == idx)
+                if state["mute"]:
+                    continue
+
+                await _ableton_cmd("set_track_solo", {"track_index": idx, "state": True})
+                await asyncio.sleep(0.05)
+
+                await _ableton_cmd("set_song_position", {"beat": beat_pos})
+                await _ableton_cmd("start_playback")
+                await asyncio.sleep(0.15)
+                audio, sr, _ = await asyncio.to_thread(capture_audio, seconds, device)
+                await _ableton_cmd("stop_playback")
+
+                audio_tracks.append((audio, t.get("name", f"Track {idx}")))
+
+                await _ableton_cmd("set_track_solo", {"track_index": idx, "state": False})
+                await asyncio.sleep(0.05)
+
+        finally:
+            for st in original_states:
+                await _ableton_cmd("set_track_solo", {"track_index": st["index"], "state": st["solo"]})
+                await _ableton_cmd("set_track_mute", {"track_index": st["index"], "state": st["mute"]})
+
+        report = masking_report(audio_tracks, sr)
+        report["bar"] = bar
+        report["bars"] = bars
+        report["tracks_analyzed"] = len(audio_tracks)
+        return json.dumps(report, separators=(',', ':'))
+
+    except Exception as e:
+        logger.error(f"Error in masking_analysis: {e}")
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def compare_to_reference(
+    ctx: Context,
+    bar: int = 1,
+    bars: int = 4,
+    reference_track_index: int = 9,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Compare your mix against a reference track.
+
+    Unmutes and solos the reference track to capture it, then captures the full
+    mix (without reference), and returns a feature-by-feature delta.
+
+    Parameters:
+    - bar: Bar to capture from
+    - bars: Bars to capture
+    - reference_track_index: Index of the reference track (default: 9)
+    - device: Loopback device name
+    """
+    try:
+        from .loopback import capture_and_analyze
+        from .psycho_features import compare
+
+        info = await _ableton_cmd("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+        beat_pos = (bar - 1) * beats_per_bar
+        seconds = bars * (60.0 / tempo) * beats_per_bar
+
+        # Save reference track state
+        ref_info = await _ableton_cmd("get_track_info", {"track_index": reference_track_index})
+        ref_was_muted = ref_info.get("mute", False)
+        ref_was_solo = ref_info.get("solo", False)
+
+        async def _capture():
+            await _ableton_cmd("set_song_position", {"beat": beat_pos})
+            await _ableton_cmd("start_playback")
+            await asyncio.sleep(0.15)
+            result = await asyncio.to_thread(capture_and_analyze, seconds, device)
+            await _ableton_cmd("stop_playback")
+            return result
+
+        try:
+            # Capture reference (solo it, unmute it)
+            await _ableton_cmd("set_track_mute", {"track_index": reference_track_index, "state": False})
+            await _ableton_cmd("set_track_solo", {"track_index": reference_track_index, "state": True})
+            await asyncio.sleep(0.05)
+            ref_snap = await _capture()
+
+            # Unsolo reference, re-mute it
+            await _ableton_cmd("set_track_solo", {"track_index": reference_track_index, "state": False})
+            await _ableton_cmd("set_track_mute", {"track_index": reference_track_index, "state": True})
+            await asyncio.sleep(0.05)
+
+            # Capture the mix
+            mix_snap = await _capture()
+
+        finally:
+            # Restore reference track state
+            await _ableton_cmd("set_track_mute", {"track_index": reference_track_index, "state": ref_was_muted})
+            await _ableton_cmd("set_track_solo", {"track_index": reference_track_index, "state": ref_was_solo})
+
+        delta = compare(ref_snap["features"], mix_snap["features"])
+
+        report = {
+            "reference": ref_snap["features"],
+            "mix": mix_snap["features"],
+            "delta": delta,
+            "bar": bar,
+            "bars": bars,
+        }
+        return json.dumps(report, separators=(',', ':'))
+
+    except Exception as e:
+        logger.error(f"Error in compare_to_reference: {e}")
+        return f"Error: {e}"
+
+
+@mcp.tool()
+async def set_clip_properties(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    gain: float = None,
+    pitch_coarse: int = None,
+    pitch_fine: float = None,
+    warp_mode: int = None,
+    warping: bool = None,
+) -> str:
+    """
+    Set properties on a clip (arrangement or session).
+
+    Parameters:
+    - track_index: Track index (supports -1 for master, -2/-3 for returns)
+    - clip_index: Clip index (arrangement clips by index, or session clip slot)
+    - gain: Clip gain (1.0 = unity, 0.5 = -6dB, 2.0 = +6dB)
+    - pitch_coarse: Pitch shift in semitones
+    - pitch_fine: Fine pitch in cents
+    - warp_mode: 0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 5=REX, 6=Complex Pro
+    - warping: Enable/disable warping
+    """
+    try:
+        props = {}
+        if gain is not None:
+            props["gain"] = gain
+        if pitch_coarse is not None:
+            props["pitch_coarse"] = pitch_coarse
+        if pitch_fine is not None:
+            props["pitch_fine"] = pitch_fine
+        if warp_mode is not None:
+            props["warp_mode"] = warp_mode
+        if warping is not None:
+            props["warping"] = warping
+        result = await _ableton_cmd("set_clip_properties", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "properties": props,
+        })
+        return f"Set clip '{result.get('name', '?')}' properties: {json.dumps(result, separators=(',', ':'))}"
+    except Exception as e:
+        logger.error(f"Error setting clip properties: {str(e)}")
+        return f"Error setting clip properties: {str(e)}"
+
+
+@mcp.tool()
+async def lufs_timeline(
+    ctx: Context,
+    bar_start: int = 1,
+    bar_end: int = 8,
+    device: str = "BlackHole",
+) -> str:
+    """
+    Capture per-bar loudness across a range of bars.
+
+    Returns an array of per-bar analysis with LUFS, true peak, and energy bands.
+    Useful for seeing dynamics and energy flow across the arrangement.
+
+    Parameters:
+    - bar_start: First bar to capture (1-indexed)
+    - bar_end: Last bar to capture (inclusive)
+    - device: Loopback device name substring
+    """
+    try:
+        from .loopback import capture_and_analyze
+
+        info = await _ableton_cmd("get_session_info")
+        tempo = float(info.get("tempo", 120.0))
+        time_sig = info.get("time_signature", "4/4")
+        beats_per_bar = int(time_sig.split("/")[0])
+        seconds_per_bar = (60.0 / tempo) * beats_per_bar
+
+        timeline = []
+        for bar in range(bar_start, bar_end + 1):
+            beat_pos = (bar - 1) * beats_per_bar
+            await _ableton_cmd("set_song_position", {"beat": beat_pos})
+            await _ableton_cmd("start_playback")
+            await asyncio.sleep(0.15)
+            result = await asyncio.to_thread(capture_and_analyze, seconds_per_bar, device)
+            await _ableton_cmd("stop_playback")
+
+            entry = {"bar": bar}
+            entry.update(result.get("features", {}))
+            timeline.append(entry)
+
+        return json.dumps({
+            "tempo": round(tempo, 1),
+            "bar_start": bar_start,
+            "bar_end": bar_end,
+            "timeline": timeline,
+        }, separators=(',', ':'))
+
+    except Exception as e:
+        logger.error(f"Error in lufs_timeline: {e}")
+        return f"Error: {e}"
+
 
 @mcp.tool()
 async def analyze_snippet(

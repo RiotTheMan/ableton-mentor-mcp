@@ -42,6 +42,40 @@ def list_input_devices() -> list[dict]:
     ]
 
 
+def capture_audio(
+    seconds: float = 8.0,
+    device: str = DEFAULT_DEVICE_KEYWORD,
+    sr: int = DEFAULT_SR,
+) -> tuple:
+    """
+    Capture `seconds` of audio from a loopback device and return the raw buffer.
+
+    Returns
+    -------
+    (audio, sr, device_name) where audio is np.ndarray of shape
+    (channels, samples) or (samples,) for mono.
+    """
+    device_index = _find_device(device)
+    device_name = sd.query_devices(device_index)["name"]
+    channels = min(2, sd.query_devices(device_index)["max_input_channels"])
+
+    frames = int(seconds * sr)
+    recording = sd.rec(
+        frames,
+        samplerate=sr,
+        channels=channels,
+        dtype="float32",
+        device=device_index,
+    )
+    sd.wait()
+
+    audio = recording.T
+    if audio.shape[0] == 1:
+        audio = audio[0]
+
+    return audio, sr, device_name
+
+
 def capture_and_analyze(
     seconds: float = 8.0,
     device: str = DEFAULT_DEVICE_KEYWORD,
@@ -66,26 +100,7 @@ def capture_and_analyze(
         "seconds"  : float — actual duration captured
         "features" : dict — psychoacoustic features
     """
-    device_index = _find_device(device)
-    device_name = sd.query_devices(device_index)["name"]
-    channels = min(2, sd.query_devices(device_index)["max_input_channels"])
-
-    # Blocking record — caller hits play in Ableton before/during this
-    frames = int(seconds * sr)
-    recording = sd.rec(
-        frames,
-        samplerate=sr,
-        channels=channels,
-        dtype="float32",
-        device=device_index,
-    )
-    sd.wait()  # blocks until done
-
-    # recording shape: (samples, channels) → transpose to (channels, samples)
-    audio = recording.T
-    if audio.shape[0] == 1:
-        audio = audio[0]  # squeeze mono to 1D
-
+    audio, sr, device_name = capture_audio(seconds, device, sr)
     features = _analyze(audio, sr)
 
     return {

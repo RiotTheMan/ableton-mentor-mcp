@@ -264,6 +264,50 @@ class AbletonMCP(ControlSurface):
                     result = self._set_song_position(params.get("beat", 0))
                 elif command_type == "load_browser_item":
                     result = self._load_browser_item(params.get("track_index", 0), params.get("item_uri", ""))
+                elif command_type == "set_track_volume":
+                    result = self._set_track_volume(params.get("track_index", 0), params.get("db", 0.0))
+                elif command_type == "set_track_pan":
+                    result = self._set_track_pan(params.get("track_index", 0), params.get("value", 0.0))
+                elif command_type == "set_device_parameter":
+                    result = self._set_device_parameter(
+                        params.get("track_index", 0),
+                        params.get("device_index", 0),
+                        params.get("parameter_name", ""),
+                        params.get("value"),
+                    )
+                elif command_type == "set_track_send":
+                    result = self._set_track_send(
+                        params.get("track_index", 0),
+                        params.get("send_index", 0),
+                        params.get("value", 0.0),
+                    )
+                elif command_type == "set_track_solo":
+                    result = self._set_track_solo(params.get("track_index", 0), params.get("state", False))
+                elif command_type == "set_track_mute":
+                    result = self._set_track_mute(params.get("track_index", 0), params.get("state", False))
+                elif command_type == "undo":
+                    result = self._undo()
+                elif command_type == "redo":
+                    result = self._redo()
+                elif command_type == "get_arrangement_clips":
+                    result = self._get_arrangement_clips()
+                elif command_type == "set_device_parameter_by_display":
+                    result = self._set_device_parameter_by_display(
+                        params.get("track_index", 0),
+                        params.get("device_index", 0),
+                        params.get("parameter_name", ""),
+                        params.get("display_value", ""),
+                    )
+                elif command_type == "get_mixer_snapshot":
+                    result = self._get_mixer_snapshot()
+                elif command_type == "set_mixer_snapshot":
+                    result = self._set_mixer_snapshot(params.get("snapshot", {}))
+                elif command_type == "set_clip_properties":
+                    result = self._set_clip_properties(
+                        params.get("track_index", 0),
+                        params.get("clip_index", 0),
+                        params.get("properties", {}),
+                    )
                 else:
                     response_queue.put({"status": "error", "message": "Unknown command: " + command_type})
                     return
@@ -294,7 +338,24 @@ class AbletonMCP(ControlSurface):
         return response
     
     # Command implementations
-    
+
+    def _resolve_track(self, track_index):
+        """Resolve a track index to a track object.
+        >= 0: regular tracks, -1: master, <= -2: return tracks (-2 = A, -3 = B, etc.)"""
+        if track_index == -1:
+            return self.song().master_track
+        elif track_index <= -2:
+            return_idx = abs(track_index) - 2
+            returns = self.song().return_tracks
+            if return_idx < 0 or return_idx >= len(returns):
+                raise IndexError("Return track index out of range")
+            return returns[return_idx]
+        else:
+            tracks = self.song().tracks
+            if track_index < 0 or track_index >= len(tracks):
+                raise IndexError("Track index out of range")
+            return tracks[track_index]
+
     def _get_session_info(self):
         """Get information about the current session"""
         try:
@@ -419,10 +480,7 @@ class AbletonMCP(ControlSurface):
     def _get_track_info(self, track_index):
         """Get information about a track"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
 
             # Only emit occupied clip slots
             clip_slots = []
@@ -589,11 +647,7 @@ class AbletonMCP(ControlSurface):
     def _set_track_name(self, track_index, name):
         """Set the name of a track"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            # Set the name
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             track.name = name
             
             result = {
@@ -607,10 +661,7 @@ class AbletonMCP(ControlSurface):
     def _set_track_color(self, track_index, color):
         """Set the color of a track"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             track.color = color
 
             return {"color": track.color}
@@ -621,10 +672,7 @@ class AbletonMCP(ControlSurface):
     def _create_clip(self, track_index, clip_index, length):
         """Create a new MIDI clip in the specified track and clip slot"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             if clip_index < 0 or clip_index >= len(track.clip_slots):
                 raise IndexError("Clip index out of range")
@@ -650,10 +698,7 @@ class AbletonMCP(ControlSurface):
     def _add_notes_to_clip(self, track_index, clip_index, notes):
         """Add MIDI notes to a clip"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             if clip_index < 0 or clip_index >= len(track.clip_slots):
                 raise IndexError("Clip index out of range")
@@ -690,10 +735,7 @@ class AbletonMCP(ControlSurface):
     def _set_clip_name(self, track_index, clip_index, name):
         """Set the name of a clip"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             if clip_index < 0 or clip_index >= len(track.clip_slots):
                 raise IndexError("Clip index out of range")
@@ -730,10 +772,7 @@ class AbletonMCP(ControlSurface):
     def _fire_clip(self, track_index, clip_index):
         """Fire a clip"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             if clip_index < 0 or clip_index >= len(track.clip_slots):
                 raise IndexError("Clip index out of range")
@@ -756,10 +795,7 @@ class AbletonMCP(ControlSurface):
     def _stop_clip(self, track_index, clip_index):
         """Stop a clip"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             if clip_index < 0 or clip_index >= len(track.clip_slots):
                 raise IndexError("Clip index out of range")
@@ -812,13 +848,382 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error setting song position: " + str(e))
             raise
 
+    def _set_track_volume(self, track_index, db):
+        """Set a track's volume in dB (range roughly -70 to +6)"""
+        try:
+            track = self._resolve_track(track_index)
+            vol_param = track.mixer_device.volume
+            # Convert dB to linear 0..1 range used by Live
+            # Live's volume parameter: 0.0 = -inf, 0.85 = 0 dB, 1.0 = +6 dB (approx)
+            # Use the parameter's built-in min/max and do a binary search for the target dB
+            target_str = None
+            lo, hi = vol_param.min, vol_param.max
+            # Binary search: find the value whose display string matches the target dB
+            for _ in range(50):
+                mid = (lo + hi) / 2.0
+                display = vol_param.str_for_value(mid)
+                # Parse display value to float dB
+                try:
+                    current_db = float(display.replace(" dB", "").replace("dB", "").replace("-inf", "-70"))
+                except ValueError:
+                    current_db = -70.0
+                if abs(current_db - db) < 0.15:
+                    target_str = display
+                    vol_param.value = mid
+                    break
+                if current_db < db:
+                    lo = mid
+                else:
+                    hi = mid
+            else:
+                # Didn't converge perfectly — use best approximation
+                mid = (lo + hi) / 2.0
+                vol_param.value = mid
+                target_str = vol_param.str_for_value(mid)
+            return {"volume": vol_param.str_for_value(vol_param.value)}
+        except Exception as e:
+            self.log_message("Error setting track volume: " + str(e))
+            raise
+
+    def _set_track_pan(self, track_index, value):
+        """Set a track's panning. -1.0 = full left, 0.0 = center, 1.0 = full right"""
+        try:
+            track = self._resolve_track(track_index)
+            pan_param = track.mixer_device.panning
+            # Panning in Live: min=-1, max=1
+            clamped = max(pan_param.min, min(pan_param.max, float(value)))
+            pan_param.value = clamped
+            return {"pan": pan_param.str_for_value(pan_param.value)}
+        except Exception as e:
+            self.log_message("Error setting track pan: " + str(e))
+            raise
+
+    def _set_device_parameter(self, track_index, device_index, parameter_name, value):
+        """Set a device parameter by name. Value is the raw float from the parameter's min/max range,
+        or for quantized params, the integer index into value_items."""
+        try:
+            track = self._resolve_track(track_index)
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+            device = track.devices[device_index]
+            # Find the parameter by name
+            target_param = None
+            for p in device.parameters:
+                if p.name == parameter_name:
+                    target_param = p
+                    break
+            if target_param is None:
+                raise ValueError("Parameter '{}' not found on device '{}'".format(parameter_name, device.name))
+            # Set the value
+            if target_param.is_quantized:
+                target_param.value = int(value)
+            else:
+                clamped = max(target_param.min, min(target_param.max, float(value)))
+                target_param.value = clamped
+            return {
+                "device": device.name,
+                "parameter": target_param.name,
+                "display_value": target_param.str_for_value(target_param.value),
+            }
+        except Exception as e:
+            self.log_message("Error setting device parameter: " + str(e))
+            raise
+
+    def _set_track_send(self, track_index, send_index, value):
+        """Set a track's send level. Value is 0.0 to 1.0."""
+        try:
+            track = self._resolve_track(track_index)
+            sends = track.mixer_device.sends
+            if send_index < 0 or send_index >= len(sends):
+                raise IndexError("Send index out of range")
+            send_param = sends[send_index]
+            clamped = max(send_param.min, min(send_param.max, float(value)))
+            send_param.value = clamped
+            return {"send": send_param.str_for_value(send_param.value)}
+        except Exception as e:
+            self.log_message("Error setting track send: " + str(e))
+            raise
+
+    def _set_track_solo(self, track_index, state):
+        """Set a track's solo state."""
+        try:
+            track = self._resolve_track(track_index)
+            track.solo = bool(state)
+            return {"solo": track.solo}
+        except Exception as e:
+            self.log_message("Error setting track solo: " + str(e))
+            raise
+
+    def _set_track_mute(self, track_index, state):
+        """Set a track's mute state."""
+        try:
+            track = self._resolve_track(track_index)
+            track.mute = bool(state)
+            return {"mute": track.mute}
+        except Exception as e:
+            self.log_message("Error setting track mute: " + str(e))
+            raise
+
+    def _undo(self):
+        """Undo the last action."""
+        try:
+            self.song().undo()
+            return {"status": "undone"}
+        except Exception as e:
+            self.log_message("Error performing undo: " + str(e))
+            raise
+
+    def _redo(self):
+        """Redo the last undone action."""
+        try:
+            self.song().redo()
+            return {"status": "redone"}
+        except Exception as e:
+            self.log_message("Error performing redo: " + str(e))
+            raise
+
+    def _get_arrangement_clips(self):
+        """Get arrangement clips for all tracks."""
+        try:
+            tracks_data = []
+            for i, track in enumerate(self.song().tracks):
+                clips = []
+                try:
+                    for clip in track.arrangement_clips:
+                        clip_data = {
+                            "name": clip.name,
+                            "start_time": clip.start_time,
+                            "end_time": clip.end_time,
+                            "length": clip.length,
+                        }
+                        try:
+                            clip_data["loop_start"] = clip.loop_start
+                            clip_data["loop_end"] = clip.loop_end
+                        except Exception:
+                            pass
+                        try:
+                            clip_data["color"] = clip.color
+                        except Exception:
+                            pass
+                        clips.append(clip_data)
+                except Exception:
+                    pass
+                if clips:
+                    tracks_data.append({
+                        "track_index": i,
+                        "track_name": track.name,
+                        "clips": clips,
+                    })
+            return {"tracks": tracks_data}
+        except Exception as e:
+            self.log_message("Error getting arrangement clips: " + str(e))
+            raise
+
+    def _set_device_parameter_by_display(self, track_index, device_index, parameter_name, display_value):
+        """Set a device parameter by matching its display string.
+        For continuous params, binary-search the min..max range.
+        For quantized params, match against value_items."""
+        try:
+            track = self._resolve_track(track_index)
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+            device = track.devices[device_index]
+
+            target_param = None
+            for p in device.parameters:
+                if p.name == parameter_name:
+                    target_param = p
+                    break
+            if target_param is None:
+                raise ValueError("Parameter '{}' not found on device '{}'".format(parameter_name, device.name))
+
+            target = display_value.strip()
+
+            if target_param.is_quantized:
+                try:
+                    items = list(target_param.value_items)
+                    for idx, item in enumerate(items):
+                        if item.strip() == target:
+                            target_param.value = idx
+                            return {
+                                "device": device.name,
+                                "parameter": target_param.name,
+                                "display_value": target_param.str_for_value(target_param.value),
+                            }
+                    raise ValueError("Display value '{}' not in value_items: {}".format(target, items))
+                except AttributeError:
+                    raise ValueError("Parameter '{}' is quantized but has no value_items".format(parameter_name))
+            else:
+                lo, hi = target_param.min, target_param.max
+                best_mid = (lo + hi) / 2.0
+                # Try to parse target numeric value
+                try:
+                    tgt_num = float(''.join(c for c in target if c in '0123456789.eE-+'))
+                except ValueError:
+                    tgt_num = None
+
+                for _ in range(64):
+                    mid = (lo + hi) / 2.0
+                    display = target_param.str_for_value(mid)
+                    if display.strip() == target:
+                        target_param.value = mid
+                        return {
+                            "device": device.name,
+                            "parameter": target_param.name,
+                            "display_value": display,
+                        }
+                    if tgt_num is None:
+                        break
+                    try:
+                        cur_num = float(''.join(c for c in display if c in '0123456789.eE-+'))
+                    except ValueError:
+                        break
+                    if abs(cur_num - tgt_num) < 0.05:
+                        target_param.value = mid
+                        return {
+                            "device": device.name,
+                            "parameter": target_param.name,
+                            "display_value": display,
+                        }
+                    if cur_num < tgt_num:
+                        lo = mid
+                    else:
+                        hi = mid
+                    best_mid = mid
+                # Best effort
+                target_param.value = best_mid
+                return {
+                    "device": device.name,
+                    "parameter": target_param.name,
+                    "display_value": target_param.str_for_value(target_param.value),
+                    "note": "Approximate match",
+                }
+        except Exception as e:
+            self.log_message("Error setting device parameter by display: " + str(e))
+            raise
+
+    def _get_mixer_snapshot(self):
+        """Capture full mixer state for all tracks."""
+        try:
+            tracks = []
+            for i, track in enumerate(self.song().tracks):
+                md = track.mixer_device
+                t = {
+                    "index": i,
+                    "name": track.name,
+                    "volume": md.volume.value,
+                    "pan": md.panning.value,
+                    "mute": track.mute,
+                    "solo": track.solo,
+                }
+                # Sends
+                sends = []
+                for send in md.sends:
+                    sends.append(send.value)
+                if sends:
+                    t["sends"] = sends
+                # Device on/off states
+                device_states = []
+                for device in track.devices:
+                    device_states.append({
+                        "name": device.name,
+                        "is_active": device.is_active,
+                    })
+                if device_states:
+                    t["devices"] = device_states
+                tracks.append(t)
+            return {"tracks": tracks}
+        except Exception as e:
+            self.log_message("Error getting mixer snapshot: " + str(e))
+            raise
+
+    def _set_mixer_snapshot(self, snapshot):
+        """Apply a previously saved mixer snapshot."""
+        try:
+            applied = 0
+            tracks_data = snapshot.get("tracks", [])
+            song_tracks = self.song().tracks
+            for t_data in tracks_data:
+                idx = t_data.get("index", -1)
+                if idx < 0 or idx >= len(song_tracks):
+                    continue
+                track = song_tracks[idx]
+                md = track.mixer_device
+                if "volume" in t_data:
+                    md.volume.value = max(md.volume.min, min(md.volume.max, float(t_data["volume"])))
+                if "pan" in t_data:
+                    md.panning.value = max(md.panning.min, min(md.panning.max, float(t_data["pan"])))
+                if "mute" in t_data:
+                    track.mute = bool(t_data["mute"])
+                if "solo" in t_data:
+                    track.solo = bool(t_data["solo"])
+                if "sends" in t_data:
+                    sends = md.sends
+                    for s_idx, s_val in enumerate(t_data["sends"]):
+                        if s_idx < len(sends):
+                            sends[s_idx].value = max(sends[s_idx].min, min(sends[s_idx].max, float(s_val)))
+                if "devices" in t_data:
+                    for d_idx, d_data in enumerate(t_data["devices"]):
+                        if d_idx < len(track.devices):
+                            try:
+                                if "is_active" in d_data:
+                                    if d_data["is_active"]:
+                                        track.devices[d_idx].is_active = True
+                                    else:
+                                        track.devices[d_idx].is_active = False
+                            except Exception:
+                                pass
+                applied += 1
+            return {"applied": applied}
+        except Exception as e:
+            self.log_message("Error setting mixer snapshot: " + str(e))
+            raise
+
+    def _set_clip_properties(self, track_index, clip_index, properties):
+        """Set clip properties (gain, pitch_coarse, pitch_fine, warp_mode, warping)."""
+        try:
+            track = self._resolve_track(track_index)
+            # Try arrangement clips first, fall back to session clip slots
+            clip = None
+            try:
+                arr_clips = list(track.arrangement_clips)
+                if clip_index < len(arr_clips):
+                    clip = arr_clips[clip_index]
+            except Exception:
+                pass
+            if clip is None:
+                if clip_index < 0 or clip_index >= len(track.clip_slots):
+                    raise IndexError("Clip index out of range")
+                slot = track.clip_slots[clip_index]
+                if not slot.has_clip:
+                    raise Exception("No clip in slot")
+                clip = slot.clip
+
+            result = {"name": clip.name}
+            if "gain" in properties:
+                clip.gain = float(properties["gain"])
+                result["gain"] = clip.gain
+            if "pitch_coarse" in properties:
+                clip.pitch_coarse = int(properties["pitch_coarse"])
+                result["pitch_coarse"] = clip.pitch_coarse
+            if "pitch_fine" in properties:
+                clip.pitch_fine = float(properties["pitch_fine"])
+                result["pitch_fine"] = clip.pitch_fine
+            if "warp_mode" in properties:
+                clip.warp_mode = int(properties["warp_mode"])
+                result["warp_mode"] = clip.warp_mode
+            if "warping" in properties:
+                clip.warping = bool(properties["warping"])
+                result["warping"] = clip.warping
+            return result
+        except Exception as e:
+            self.log_message("Error setting clip properties: " + str(e))
+            raise
+
     def _get_device_parameters(self, track_index):
         """Get all device parameters for a track, including nested rack chains"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
 
             def extract_device(device):
                 params = []
@@ -953,10 +1358,7 @@ class AbletonMCP(ControlSurface):
     def _load_browser_item(self, track_index, item_uri):
         """Load a browser item onto a track by its URI"""
         try:
-            if track_index < 0 or track_index >= len(self.song().tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self.song().tracks[track_index]
+            track = self._resolve_track(track_index)
             
             # Access the application's browser instance instead of creating a new one
             app = self.application()

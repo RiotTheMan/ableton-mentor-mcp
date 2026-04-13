@@ -229,6 +229,100 @@ def analyze(audio: np.ndarray, sr: int) -> dict:
     return {k: v for k, v in result.items() if v is not None}
 
 
+def compare(features_a: dict, features_b: dict) -> dict:
+    """
+    Compare two feature dicts and return per-feature deltas.
+
+    Returns dict of {feature_name: {"a": val, "b": val, "delta": b - a}}.
+    Only includes features present in both dicts.
+    """
+    result = {}
+    for key in features_a:
+        if key not in features_b:
+            continue
+        a_val = features_a[key]
+        b_val = features_b[key]
+        if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
+            result[key] = {
+                "a": _r(a_val, 2),
+                "b": _r(b_val, 2),
+                "delta": _r(b_val - a_val, 2),
+            }
+    return result
+
+
+def masking_report(
+    audio_tracks: list,
+    sr: int,
+) -> dict:
+    """
+    Detect frequency masking between pairs of tracks.
+
+    Parameters
+    ----------
+    audio_tracks : list of (np.ndarray, str)
+        Each element is (audio_array, track_name). Audio is mono or stereo.
+    sr : int
+        Sample rate.
+
+    Returns
+    -------
+    dict with "conflicts" list — pairs of tracks that share significant
+    energy in the same frequency band.
+    """
+    if not _HAS_LIBROSA:
+        return {"error": "librosa not available", "conflicts": []}
+
+    bands = {
+        "sub": (20, 60),
+        "low": (60, 250),
+        "mid": (250, 4000),
+        "high": (4000, 20000),
+    }
+
+    # Compute per-band energy for each track
+    track_energies = []
+    for audio, name in audio_tracks:
+        mono = _to_mono(audio)
+        fft = np.fft.rfft(mono)
+        freqs = np.fft.rfftfreq(len(mono), d=1.0 / sr)
+        power = np.abs(fft) ** 2
+        total = np.sum(power)
+        if total == 0:
+            track_energies.append((name, {b: 0.0 for b in bands}))
+            continue
+        energies = {}
+        for band_name, (lo, hi) in bands.items():
+            mask = (freqs >= lo) & (freqs < hi)
+            energies[band_name] = float(np.sum(power[mask]) / total)
+        track_energies.append((name, energies))
+
+    # Find pairs with significant overlap in the same band
+    conflicts = []
+    threshold = 0.10  # both tracks must have >= 10% energy in the band
+    for i in range(len(track_energies)):
+        for j in range(i + 1, len(track_energies)):
+            name_a, en_a = track_energies[i]
+            name_b, en_b = track_energies[j]
+            for band_name in bands:
+                a_pct = en_a[band_name]
+                b_pct = en_b[band_name]
+                if a_pct >= threshold and b_pct >= threshold:
+                    overlap = min(a_pct, b_pct) / max(a_pct, b_pct) * 100
+                    conflicts.append({
+                        "tracks": [name_a, name_b],
+                        "band": band_name,
+                        "energy_a_pct": _r(a_pct * 100, 1),
+                        "energy_b_pct": _r(b_pct * 100, 1),
+                        "overlap_score": _r(overlap, 1),
+                    })
+
+    # Sort by overlap score descending
+    conflicts.sort(key=lambda c: c["overlap_score"], reverse=True)
+
+    return {"conflicts": conflicts}
+
+
 # ---------------------------------------------------------------------------
 # CLI smoke test
 # ---------------------------------------------------------------------------
