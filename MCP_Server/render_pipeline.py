@@ -93,7 +93,7 @@ def trigger_render(accept_dialog: bool = True, dialog_delay: float = 2.0) -> Non
         permissions not granted).
     """
     if accept_dialog:
-        script = _APPLESCRIPT_TRIGGER.format(dialog_delay=dialog_delay)
+        script = _APPLESCRIPT_TRIGGER.format(dialog_delay=float(dialog_delay))
     else:
         script = _APPLESCRIPT_TRIGGER_NO_ACCEPT
 
