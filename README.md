@@ -13,6 +13,23 @@ That's mentor-level feedback, not a button press.
 
 ---
 
+## About This Fork
+
+**Original project:** [AbletonMCP](https://github.com/ahujasid/ableton-mcp) by [Siddharth](https://x.com/sidahuj)
+
+**This fork adds:**
+- **Holistic mentor data layer** — automation envelopes, routing, mixer levels, warp modes, loop regions, scene names
+- **On-demand psychoacoustic analysis** — auto-seek to bar, auto-play, loopback capture, ~17 audio metrics per snippet
+- **Mentor-first positioning** — observe → analyze → teach (not automation)
+- **Expanded session awareness** — return tracks, sends, automation flags, input/output routing
+- **Clip-level detail** — gain, pitch, warp mode, loop region, automation per clip
+
+**Maintained by:** [Emile Harel](https://github.com/RiotTheMan)
+
+This is an actively maintained fork focused on teaching mixing through parameter-to-perception feedback. The mentor helps you understand *why* your mixing decisions sound the way they do.
+
+---
+
 ## What the Mentor Does
 
 ### 1. **Listens to Your Session**
